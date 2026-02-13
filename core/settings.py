@@ -89,14 +89,12 @@ DATABASES = {
 
 from datetime import timedelta
 
-# 1. Configuración de REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     )
 }
 
-# 2. Configuración de SimpleJWT (Ajuste de duración del "pase")
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),

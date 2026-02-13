@@ -21,10 +21,12 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 
+from ..cuentas.views import *
+
 urlpatterns = [
-    # CORRECCIÓN AQUÍ: Cambia admin.site.id por admin.site.urls
     path('admin/', admin.site.urls), 
     
     path('api/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('dashboard/home/', DashboardHomeView.as_view(), name='dashboard_home'),
 ]
