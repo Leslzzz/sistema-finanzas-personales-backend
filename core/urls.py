@@ -7,11 +7,11 @@ from cuentas.views import RegisterView, MyTokenObtainPairView, DashboardHomeView
 urlpatterns = [
     path('admin/', admin.site.urls), 
     
-    # Endpoints de Autenticación
-    path('api/register/', RegisterView.as_view(), name='auth_register'), 
+    # Endpoints de Autenticación para la Landing Page
+    path('api/register/', RegisterView.as_view(), name='auth_register'), # <--- ESTA ES LA QUE FALTA
     path('api/login/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
-    # Endpoints de Aplicación
+    # Endpoint para el Dashboard
     path('api/dashboard/home/', DashboardHomeView.as_view(), name='dashboard_home'),
 ]
