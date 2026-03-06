@@ -15,7 +15,6 @@ class TransactionSerializer(serializers.ModelSerializer):
         trans_type = validated_data.pop('type')
         user = self.context['request'].user
         
-        # Usamos una transacción atómica de base de datos para asegurar integridad
         with db_transaction.atomic():
             transaction = Transaction.objects.create(user=user, **validated_data)
             if trans_type == 'INCOME':

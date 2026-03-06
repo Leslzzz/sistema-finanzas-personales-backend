@@ -22,7 +22,6 @@ class DashboardHomeView(APIView):
     def get(self, request):
         user = request.user
         
-        # Agregación de datos en PostgreSQL para alta precisión
         total_in = Income.objects.filter(transaction__user=user).aggregate(Sum('amount'))['amount__sum'] or 0
         total_out = Outcome.objects.filter(transaction__user=user).aggregate(Sum('expense'))['expense__sum'] or 0
         balance = total_in - total_out
