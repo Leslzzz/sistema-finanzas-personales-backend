@@ -145,7 +145,7 @@ STATIC_URL = 'static/'
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://sistema-finanzas-personales-backend-production.up.railway.app',
+    'https://sistema-finanzas-personales.up.railway.app',
     'https://*.railway.app'
 ]
 
