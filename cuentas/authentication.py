@@ -1,18 +1,22 @@
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from django.conf import settings
+from rest_framework_simplejwt.exceptions import InvalidToken, AuthenticationFailed
 
 class CustomCookieJWTAuthentication(JWTAuthentication):
     def authenticate(self, request):
-        header = self.get_header(request)
+        # Intentamos obtener el token de la cookie 'access_token'
+        raw_token = request.COOKIES.get('access_token') or None
         
-        if header is None:
-            # Si no hay header Authorization, buscamos en las cookies
-            raw_token = request.COOKIES.get('access_token') or None
-        else:
-            raw_token = self.get_raw_token(header)
-            
+        # Si no hay cookie, probamos con el header por si usas Postman
+        if raw_token is None:
+            header = self.get_header(request)
+            if header:
+                raw_token = self.get_raw_token(header)
+
         if raw_token is None:
             return None
 
-        validated_token = self.get_validated_token(raw_token)
-        return self.get_user(validated_token), validated_token
+        try:
+            validated_token = self.get_validated_token(raw_token)
+            return self.get_user(validated_token), validated_token
+        except (InvalidToken, AuthenticationFailed):
+            return None
