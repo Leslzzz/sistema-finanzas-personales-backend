@@ -59,20 +59,26 @@ class DashboardHomeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
-        total_in = Income.objects.filter(transaction__user=user).aggregate(Sum('amount'))['amount__sum'] or 0
-        total_out = Outcome.objects.filter(transaction__user=user).aggregate(Sum('expense'))['expense__sum'] or 0
-        balance = total_in - total_out
+        try:
+            user = request.user
+            
+            total_in = Income.objects.filter(transaction__user=user).aggregate(Sum('amount'))['amount__sum'] or 0
+            total_out = Outcome.objects.filter(transaction__user=user).aggregate(Sum('expense'))['expense__sum'] or 0
+            
+            balance = float(total_in) - float(total_out)
 
-        return Response({
-            "user_info": {
-                "name": user.name,
-                "email": user.email,
-                "created_at": user.created_at.strftime('%B %Y')
-            },
-            "summary": {
-                "balance_total": float(balance),
-                "total_income": float(total_in),
-                "total_outcome": float(total_out)
-            }
-        })
+            return Response({
+                "user_info": {
+                    "name": getattr(user, 'name', 'Usuario'),
+                    "email": user.email,
+                    "created_at": user.created_at.strftime('%B %Y') if user.created_at else "Reciente"
+                },
+                "summary": {
+                    "balance_total": balance,
+                    "total_income": float(total_in),
+                    "total_outcome": float(total_out)
+                }
+            })
+        except Exception as e:
+            print(f"Error crítico en Dashboard: {str(e)}")
+            return Response({"error": "Error interno al calcular balance"}, status=500)
