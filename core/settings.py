@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 from pathlib import Path
 import dj_database_url
 import os
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,11 +22,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-9o9ix7_&sy!3i4kd(pdji2w_h!!qkz0cybr5f54vceajh)-0r$'
 
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
+
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    'sistema-finanzas-personales.up.railway.app',
+]
 
 
 # Application definition
@@ -42,7 +47,6 @@ INSTALLED_APPS = [
     'corsheaders',
     'cuentas',
     'finanzas',
-
 ]
 
 MIDDLEWARE = [
@@ -57,7 +61,13 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "https://sistema-finanzas-personales-fronten.vercel.app",
+]
 
 ROOT_URLCONF = 'core.urls'
 
@@ -87,24 +97,8 @@ DATABASES = {
         default=os.environ.get('DATABASE_URL'),
         conn_max_age=600
     )
-    }
-
-from datetime import timedelta
-
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
 }
 
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': True,
-    'AUTH_HEADER_TYPES': ('Bearer',),
-}
-
-AUTH_USER_MODEL = 'cuentas.User'
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -142,15 +136,33 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-ALLOWED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    'sistema-finanzas-personales.up.railway.app',
-]
-
 CSRF_TRUSTED_ORIGINS = [
     'https://sistema-finanzas-personales.up.railway.app',
-    'https://*.railway.app'
+    'https://*.railway.app',
+    'https://sistema-finanzas-personales-fronten.vercel.app',
 ]
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Cookies y Autenticación
+SESSION_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SAMESITE = 'None'
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = True
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'cuentas.authentication.CustomCookieJWTAuthentication',
+    )
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+AUTH_USER_MODEL = 'cuentas.User'
