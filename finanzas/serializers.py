@@ -8,10 +8,6 @@ class CategorySerializer(serializers.ModelSerializer):
         model = Category
         fields = ['id', 'name', 'budget']
 
-    def create(self, validated_data):
-        user = self.context['request'].user
-        return Category.objects.create(user=user, **validated_data)
-
 
 class TransactionSerializer(serializers.ModelSerializer):
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, write_only=True)
