@@ -142,7 +142,11 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    'sistema-finanzas-personales.up.railway.app',
+]
 
 CSRF_TRUSTED_ORIGINS = [
     'https://sistema-finanzas-personales.up.railway.app',
