@@ -24,7 +24,8 @@ class TransactionSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         amount = validated_data.pop('amount')
         trans_type = validated_data.pop('type')
-        user = self.context['request'].user
+        user = serializers.HiddenField(default=serializers.CurrentUserDefault())
+
 
         with db_transaction.atomic():
             transaction = Transaction.objects.create(user=user, **validated_data)
