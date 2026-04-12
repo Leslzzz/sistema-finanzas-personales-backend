@@ -1,31 +1,34 @@
+import uuid
+
 from django.db import models
 from django.conf import settings
 
-class Category(models.Model):
-    name = models.CharField(max_length=50)
-    budget = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.DO_NOTHING)
-
-    def __str__(self):
-        return f"{self.name} ({self.user.email})"
 
 class Transaction(models.Model):
-    DOCUMENT_TYPES = [('FACTURA', 'Factura'), ('TICKET', 'Ticket'), ('OTRO', 'Otro')]
-    
-    description = models.CharField(max_length=255)
-    date = models.DateField(auto_now_add=True)
-    document_type = models.CharField(max_length=20, choices=DOCUMENT_TYPES, blank=True, null=True)
-    url_document = models.URLField(max_length=500, blank=True, null=True)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.DO_NOTHING)
-    category = models.ForeignKey(Category, on_delete=models.DO_NOTHING)
+    TYPE_CHOICES = [('ingreso', 'Ingreso'), ('gasto', 'Gasto')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    desc = models.CharField(max_length=255)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    type = models.CharField(max_length=10, choices=TYPE_CHOICES)
+    category = models.CharField(max_length=100, blank=True, null=True)
+    date = models.DateField()
 
     class Meta:
         ordering = ['-date']
 
-class Income(models.Model):
-    transaction = models.OneToOneField(Transaction, on_delete=models.DO_NOTHING, primary_key=True, related_name='income_details')
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    def __str__(self):
+        return f"{self.type} | {self.desc} | {self.amount}"
 
-class Outcome(models.Model):
-    transaction = models.OneToOneField(Transaction, on_delete=models.DO_NOTHING, primary_key=True, related_name='outcome_details')
-    expense = models.DecimalField(max_digits=12, decimal_places=2)
+
+class Budget(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    label = models.CharField(max_length=100)
+    icon = models.CharField(max_length=10)
+    color = models.CharField(max_length=7)
+    limit = models.DecimalField(max_digits=12, decimal_places=2)
+
+    def __str__(self):
+        return f"{self.label} ({self.user.email})"

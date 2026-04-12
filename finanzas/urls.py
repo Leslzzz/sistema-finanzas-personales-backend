@@ -1,11 +1,24 @@
-from rest_framework.routers import DefaultRouter
-from django.urls import path, include
-from .views import CategoryViewSet, TransactionViewSet
-
-router = DefaultRouter()
-router.register(r'categories', CategoryViewSet, basename='category')
-router.register(r'transactions', TransactionViewSet, basename='transaction')
+from django.urls import path
+from .views import (
+    OnboardingView,
+    TransactionListCreateView,
+    TransactionSummaryView,
+    TransactionCategoriesView,
+    TransactionImportView,
+    TransactionExportView,
+    BudgetListView,
+    BudgetDetailView,
+)
 
 urlpatterns = [
-    path('', include(router.urls)),
+    path('onboarding', OnboardingView.as_view(), name='onboarding'),
+
+    path('transactions', TransactionListCreateView.as_view(), name='transactions'),
+    path('transactions/summary', TransactionSummaryView.as_view(), name='transactions_summary'),
+    path('transactions/categories', TransactionCategoriesView.as_view(), name='transactions_categories'),
+    path('transactions/import', TransactionImportView.as_view(), name='transactions_import'),
+    path('transactions/export', TransactionExportView.as_view(), name='transactions_export'),
+
+    path('budgets', BudgetListView.as_view(), name='budgets'),
+    path('budgets/<str:pk>', BudgetDetailView.as_view(), name='budget_detail'),
 ]
