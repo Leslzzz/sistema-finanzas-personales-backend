@@ -176,6 +176,7 @@ CSRF_COOKIE_HTTPONLY = True
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'cuentas.authentication.CustomCookieJWTAuthentication',
     )
 }
