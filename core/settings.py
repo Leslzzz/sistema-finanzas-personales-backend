@@ -30,6 +30,7 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     'sistema-finanzas-personales.up.railway.app',
+    'sistema-finanzas-personaless.vercel.app',
 ]
 
 
@@ -69,8 +70,7 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:3000",
-    "https://sistema-finanzas-personales-fronten.vercel.app",
-    "https://sistema-finanzas-personales-frontend.vercel.app",
+    "https://sistema-finanzas-personaless.vercel.app",
 ]
 
 CORS_ALLOW_METHODS = [
@@ -161,7 +161,7 @@ STATIC_URL = 'static/'
 CSRF_TRUSTED_ORIGINS = [
     'https://sistema-finanzas-personales.up.railway.app',
     'https://*.railway.app',
-    'https://sistema-finanzas-personales-fronten.vercel.app',
+    'https://sistema-finanzas-personaless.vercel.app',
 ]
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
