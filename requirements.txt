@@ -12,5 +12,6 @@ dj-database-url
 gunicorn
 whitenoise
 openpyxl
-reportlab
+pandas
+weasyprint
 cloudinary

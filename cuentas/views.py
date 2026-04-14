@@ -106,7 +106,7 @@ class CustomTokenRefreshView(TokenRefreshView):
 
 class LogoutView(APIView):
     def post(self, request):
-        response = Response({'message': 'Sesión cerrada correctamente'})
+        response = Response(status=status.HTTP_204_NO_CONTENT)
         response.delete_cookie('access_token', samesite='None')
         response.delete_cookie('refresh_token', samesite='None')
         return response
@@ -165,7 +165,7 @@ class ProfileAvatarView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser]
 
-    def post(self, request):
+    def put(self, request):
         if not CLOUDINARY_AVAILABLE:
             return Response({'message': 'Almacenamiento de imágenes no configurado'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 

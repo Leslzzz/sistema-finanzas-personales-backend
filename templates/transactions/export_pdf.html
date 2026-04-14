@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body       { font-family: 'Helvetica Neue', sans-serif; color: #1e293b; margin: 0; }
+    .header    { background: #0d1117; color: #AEFF00; padding: 20px 30px; }
+    .header h1 { margin: 0; font-size: 22px; }
+    .header p  { margin: 4px 0 0; color: #94a3b8; font-size: 11px; }
+    .summary   { display: flex; gap: 16px; padding: 20px 30px; background: #f8fafc; }
+    .card      { flex: 1; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; text-align: center; }
+    .card .val { font-size: 18px; font-weight: 700; }
+    .card .lbl { font-size: 10px; color: #64748b; margin-top: 4px; }
+    .ing       { color: #22c55e; }
+    .gas       { color: #f87171; }
+    table      { width: calc(100% - 60px); border-collapse: collapse; margin: 0 30px; }
+    th         { background: #0d1117; color: #AEFF00; font-size: 10px; text-align: left; padding: 8px 10px; }
+    td         { font-size: 10px; padding: 7px 10px; border-bottom: 1px solid #f1f5f9; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    .ing-amt   { color: #22c55e; font-weight: 700; }
+    .gas-amt   { color: #f87171; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Finanzly</h1>
+    <p>Reporte de Transacciones · {{ today }}</p>
+  </div>
+
+  <div class="summary">
+    <div class="card">
+      <div class="val ing">${{ summary.ingresos|floatformat:2 }}</div>
+      <div class="lbl">Ingresos</div>
+    </div>
+    <div class="card">
+      <div class="val gas">${{ summary.gastos|floatformat:2 }}</div>
+      <div class="lbl">Gastos</div>
+    </div>
+    <div class="card">
+      <div class="val {% if summary.balance >= 0 %}ing{% else %}gas{% endif %}">${{ summary.balance|floatformat:2 }}</div>
+      <div class="lbl">Balance</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Fecha</th>
+        <th>Descripción</th>
+        <th>Categoría</th>
+        <th>Tipo</th>
+        <th style="text-align:right">Monto</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in transactions %}
+      <tr>
+        <td>{{ t.date }}</td>
+        <td>{{ t.desc }}</td>
+        <td>{{ t.category|default:"Otros" }}</td>
+        <td>{{ t.get_type_display }}</td>
+        <td class="{% if t.type == 'ingreso' %}ing-amt{% else %}gas-amt{% endif %}" style="text-align:right">
+          {% if t.type == 'ingreso' %}+{% else %}-{% endif %}${{ t.amount|floatformat:2 }}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" style="text-align:center;color:#94a3b8">Sin transacciones</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

@@ -91,12 +91,14 @@ CORS_ALLOW_HEADERS = [
     "x-requested-with",
 ]
 
+CORS_EXPOSE_HEADERS = ['Content-Disposition', 'Content-Type']
+
 ROOT_URLCONF = 'core.urls'
 
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [

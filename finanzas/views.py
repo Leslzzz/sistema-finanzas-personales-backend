@@ -12,9 +12,6 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
-
 from .models import Transaction, Budget
 
 
@@ -113,7 +110,7 @@ class OnboardingView(APIView):
 
         user.onboarding_completed = True
         user.save()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(status=status.HTTP_201_CREATED)
 
 
 # ── Transactions ───────────────────────────────────────────────────────────────
@@ -213,127 +210,157 @@ class TransactionImportView(APIView):
     parser_classes = [MultiPartParser]
 
     def post(self, request):
+        import unicodedata
+        import pandas as pd
+
         file = request.FILES.get('file')
         if not file:
             return Response({'message': 'No se proporcionó archivo'}, status=status.HTTP_400_BAD_REQUEST)
 
         name = file.name.lower()
         try:
-            if name.endswith('.csv'):
-                imported = self._import_csv(request.user, file)
-            elif name.endswith(('.xlsx', '.xls')):
-                imported = self._import_excel(request.user, file)
+            if name.endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(file, dtype=str)
+            elif name.endswith('.csv'):
+                df = pd.read_csv(file, dtype=str, encoding='utf-8-sig')
             else:
                 return Response({'message': 'Formato no soportado. Use .csv o .xlsx'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'message': f'Error al procesar archivo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'message': f'Error al leer el archivo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({'imported': imported})
+        def normalize(s):
+            return unicodedata.normalize('NFD', s).encode('ascii', 'ignore').decode().lower().strip()
 
-    def _import_csv(self, user, file):
-        content = file.read().decode('utf-8-sig')
-        reader = csv.DictReader(io.StringIO(content))
-        return self._insert_rows(user, reader)
+        df.columns = [normalize(c) for c in df.columns]
 
-    def _import_excel(self, user, file):
-        import openpyxl
-        wb = openpyxl.load_workbook(file, read_only=True)
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
-        if not rows:
-            return 0
-        headers = [str(h).strip() for h in rows[0]]
-        return self._insert_rows(user, (dict(zip(headers, r)) for r in rows[1:]))
+        col_map = {
+            'date':     ['fecha', 'date'],
+            'desc':     ['descripcion', 'desc', 'description', 'concepto', 'detalle'],
+            'amount':   ['monto', 'amount', 'importe', 'valor'],
+            'type':     ['tipo', 'type'],
+            'category': ['categoria', 'category', 'cat'],
+        }
 
-    def _insert_rows(self, user, rows):
+        def find_col(field):
+            for alias in col_map[field]:
+                if alias in df.columns:
+                    return alias
+            return None
+
+        col_date     = find_col('date')
+        col_desc     = find_col('desc')
+        col_amount   = find_col('amount')
+        col_type     = find_col('type')
+        col_category = find_col('category')
+
+        if not col_desc or not col_amount:
+            return Response({
+                'message': 'Columnas no reconocidas. El archivo debe tener: Fecha, Descripción, Monto, Tipo, Categoría'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        imported = 0
+        skipped = 0
+        errors = []
         to_create = []
-        for row in rows:
-            try:
-                desc = str(row.get('desc', '')).strip()
-                amount = Decimal(str(row.get('amount', 0)))
-                type_ = str(row.get('type', '')).strip()
-                category = str(row.get('category', '')).strip() or None
-                date_str = str(row.get('date', '')).strip()
-                if type_ not in ('ingreso', 'gasto') or amount <= 0:
-                    continue
-                parsed_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                to_create.append(Transaction(
-                    user=user, desc=desc, amount=amount,
-                    type=type_, category=category, date=parsed_date,
-                ))
-            except Exception:
+
+        for idx, row in df.iterrows():
+            row_num = idx + 2
+
+            desc = str(row.get(col_desc, '')).strip()
+            if not desc or desc == 'nan':
+                errors.append({'row': row_num, 'msg': 'Descripción vacía'})
+                skipped += 1
                 continue
-        Transaction.objects.bulk_create(to_create)
-        return len(to_create)
+
+            try:
+                amount_raw = str(row.get(col_amount, '')).replace('$', '').replace(',', '').strip()
+                amount = Decimal(amount_raw)
+                if amount <= 0:
+                    raise ValueError()
+            except (ValueError, InvalidOperation):
+                errors.append({'row': row_num, 'msg': 'Monto inválido'})
+                skipped += 1
+                continue
+
+            raw_type = str(row.get(col_type, 'gasto')).lower().strip() if col_type else 'gasto'
+            tx_type = 'ingreso' if raw_type.startswith('i') else 'gasto'
+
+            category = str(row.get(col_category, 'Otros')).strip() if col_category else 'Otros'
+            if not category or category == 'nan':
+                category = 'Otros'
+
+            tx_date = date.today()
+            if col_date:
+                try:
+                    import pandas as pd
+                    tx_date = pd.to_datetime(str(row.get(col_date, '')), dayfirst=False).date()
+                except Exception:
+                    pass
+
+            to_create.append(Transaction(
+                user=request.user,
+                desc=desc,
+                amount=amount,
+                type=tx_type,
+                category=category,
+                date=tx_date,
+            ))
+            imported += 1
+
+        if to_create:
+            Transaction.objects.bulk_create(to_create)
+
+        return Response({'imported': imported, 'skipped': skipped, 'errors': errors})
 
 
 class TransactionExportView(APIView):
-    """Token comes as query param ?token=... because this is a direct browser download."""
-    authentication_classes = []
-    permission_classes = []
-
-    def _authenticate_from_query(self, request):
-        token = request.query_params.get('token')
-        if not token:
-            return None
-        auth = JWTAuthentication()
-        try:
-            validated = auth.get_validated_token(token.encode('utf-8'))
-            return auth.get_user(validated)
-        except (TokenError, InvalidToken, Exception):
-            return None
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = self._authenticate_from_query(request)
-        if not user:
-            return HttpResponse(status=401)
-
         fmt = request.query_params.get('format', 'csv').lower()
-        transactions = Transaction.objects.filter(user=user).order_by('-date')
+        transactions = Transaction.objects.filter(user=request.user).order_by('-date')
 
         if fmt == 'csv':
             return self._export_csv(transactions)
         elif fmt == 'pdf':
-            return self._export_pdf(transactions)
-        return HttpResponse(status=400)
+            return self._export_pdf(transactions, request.user)
+        return Response({'message': 'Formato no soportado. Usa ?format=csv o ?format=pdf'}, status=status.HTTP_400_BAD_REQUEST)
 
     def _export_csv(self, transactions):
-        resp = HttpResponse(content_type='text/csv; charset=utf-8')
-        resp['Content-Disposition'] = 'attachment; filename="finanzly-export.csv"'
-        writer = csv.writer(resp)
-        writer.writerow(['id', 'desc', 'amount', 'type', 'category', 'date'])
+        output = io.StringIO()
+        output.write('\ufeff')  # BOM para compatibilidad con Excel
+        writer = csv.writer(output)
+        writer.writerow(['Fecha', 'Descripción', 'Monto', 'Tipo', 'Categoría'])
         for t in transactions:
-            writer.writerow([str(t.id), t.desc, float(t.amount), t.type, t.category or '', t.date.strftime('%Y-%m-%d')])
+            writer.writerow([
+                t.date.strftime('%Y-%m-%d') if t.date else '',
+                t.desc,
+                f'{t.amount:.2f}',
+                t.type,
+                t.category or 'Otros',
+            ])
+        resp = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = 'attachment; filename="finanzly-transacciones.csv"'
         return resp
 
-    def _export_pdf(self, transactions):
-        from reportlab.lib.pagesizes import letter
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
-        from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.lib import colors
+    def _export_pdf(self, transactions, user):
+        from weasyprint import HTML
+        from django.template.loader import render_to_string
 
-        buf = io.BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=letter)
-        styles = getSampleStyleSheet()
+        ingresos = sum(t.amount for t in transactions if t.type == 'ingreso')
+        gastos = sum(t.amount for t in transactions if t.type == 'gasto')
+        balance = ingresos - gastos
 
-        data = [['Descripción', 'Monto', 'Tipo', 'Categoría', 'Fecha']]
-        for t in transactions:
-            data.append([t.desc, f'${float(t.amount):,.2f}', t.type, t.category or '', t.date.strftime('%Y-%m-%d')])
+        html_string = render_to_string('transactions/export_pdf.html', {
+            'transactions': transactions,
+            'summary': {'ingresos': ingresos, 'gastos': gastos, 'balance': balance},
+            'user': user,
+            'today': date.today().strftime('%d de %B de %Y'),
+        })
 
-        table = Table(data)
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
-        ]))
-
-        doc.build([Paragraph('Finanzly – Historial de Transacciones', styles['Title']), table])
-        buf.seek(0)
-
-        resp = HttpResponse(buf.read(), content_type='application/pdf')
-        resp['Content-Disposition'] = 'attachment; filename="finanzly-export.pdf"'
+        pdf_bytes = HTML(string=html_string).write_pdf()
+        resp = HttpResponse(pdf_bytes, content_type='application/pdf')
+        resp['Content-Disposition'] = 'attachment; filename="finanzly-reporte.pdf"'
         return resp
 
 
