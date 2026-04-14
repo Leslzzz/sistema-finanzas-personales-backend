@@ -6,6 +6,7 @@ from .views import (
     TransactionCategoriesView,
     TransactionImportView,
     TransactionExportView,
+    TransactionTemplateView,
     BudgetListView,
     BudgetDetailView,
 )
@@ -18,6 +19,7 @@ urlpatterns = [
     path('transactions/categories', TransactionCategoriesView.as_view(), name='transactions_categories'),
     path('transactions/import', TransactionImportView.as_view(), name='transactions_import'),
     path('transactions/export', TransactionExportView.as_view(), name='transactions_export'),
+    path('transactions/template', TransactionTemplateView.as_view(), name='transactions_template'),
 
     path('budgets', BudgetListView.as_view(), name='budgets'),
     path('budgets/<str:pk>', BudgetDetailView.as_view(), name='budget_detail'),

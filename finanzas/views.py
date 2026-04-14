@@ -313,6 +313,27 @@ class TransactionImportView(APIView):
         return Response({'imported': imported, 'skipped': skipped, 'errors': errors})
 
 
+class TransactionTemplateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        output = io.StringIO()
+        output.write('\ufeff')
+        writer = csv.writer(output)
+        writer.writerow(['Fecha', 'Descripción', 'Monto', 'Tipo', 'Categoría'])
+        writer.writerow(['2026-04-14', 'Ejemplo supermercado', '350.00', 'gasto', 'Alimentación'])
+        writer.writerow([])
+        writer.writerow(['--- Categorías disponibles (usar exactamente como aparecen) ---'])
+        writer.writerow(['Tipo válido: ingreso | gasto'])
+        writer.writerow([])
+        for cat in CATEGORY_DEFAULTS:
+            writer.writerow(['', '', '', '', cat])
+
+        resp = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = 'attachment; filename="finanzly-plantilla.csv"'
+        return resp
+
+
 class TransactionExportView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -339,6 +360,15 @@ class TransactionExportView(APIView):
                 t.type,
                 t.category or 'Otros',
             ])
+
+        # Sección de referencia: categorías válidas
+        writer.writerow([])
+        writer.writerow(['--- Categorías disponibles (usar exactamente como aparecen) ---'])
+        writer.writerow(['Tipo válido: ingreso | gasto'])
+        writer.writerow([])
+        for cat in CATEGORY_DEFAULTS:
+            writer.writerow(['', '', '', '', cat])
+
         resp = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8')
         resp['Content-Disposition'] = 'attachment; filename="finanzly-transacciones.csv"'
         return resp
