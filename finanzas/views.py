@@ -1,4 +1,3 @@
-import csv
 import io
 import calendar
 from datetime import date, datetime
@@ -316,21 +315,29 @@ class TransactionImportView(APIView):
 class TransactionTemplateView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        output = io.StringIO()
-        output.write('\ufeff')
-        writer = csv.writer(output)
-        writer.writerow(['Fecha', 'Descripción', 'Monto', 'Tipo', 'Categoría'])
-        writer.writerow(['2026-04-14', 'Ejemplo supermercado', '350.00', 'gasto', 'Alimentación'])
-        writer.writerow([])
-        writer.writerow(['--- Categorías disponibles (usar exactamente como aparecen) ---'])
-        writer.writerow(['Tipo válido: ingreso | gasto'])
-        writer.writerow([])
-        for cat in CATEGORY_DEFAULTS:
-            writer.writerow(['', '', '', '', cat])
+    def get(self, _request):
+        import openpyxl
 
-        resp = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8')
-        resp['Content-Disposition'] = 'attachment; filename="finanzly-plantilla.csv"'
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Plantilla'
+
+        ws.append(['Fecha', 'Descripción', 'Monto', 'Tipo', 'Categoría'])
+
+        # Referencia en columna G
+        ref = ['Categorías válidas:', 'Tipo: ingreso | gasto', 'Fecha: YYYY-MM-DD', ''] + list(CATEGORY_DEFAULTS.keys())
+        for i, line in enumerate(ref, start=1):
+            ws.cell(row=i, column=7, value=line)
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        resp = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        resp['Content-Disposition'] = 'attachment; filename="finanzly-plantilla.xlsx"'
         return resp
 
 
@@ -348,29 +355,38 @@ class TransactionExportView(APIView):
         return Response({'message': 'Formato no soportado. Usa ?format=csv o ?format=pdf'}, status=status.HTTP_400_BAD_REQUEST)
 
     def _export_csv(self, transactions):
-        output = io.StringIO()
-        output.write('\ufeff')  # BOM para compatibilidad con Excel
-        writer = csv.writer(output)
-        writer.writerow(['Fecha', 'Descripción', 'Monto', 'Tipo', 'Categoría'])
+        import openpyxl
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Transacciones'
+
+        headers = ['Fecha', 'Descripción', 'Monto', 'Tipo', 'Categoría']
+        ws.append(headers)
+
         for t in transactions:
-            writer.writerow([
+            ws.append([
                 t.date.strftime('%Y-%m-%d') if t.date else '',
                 t.desc,
-                f'{t.amount:.2f}',
+                float(t.amount),
                 t.type,
                 t.category or 'Otros',
             ])
 
-        # Sección de referencia: categorías válidas
-        writer.writerow([])
-        writer.writerow(['--- Categorías disponibles (usar exactamente como aparecen) ---'])
-        writer.writerow(['Tipo válido: ingreso | gasto'])
-        writer.writerow([])
-        for cat in CATEGORY_DEFAULTS:
-            writer.writerow(['', '', '', '', cat])
+        # Referencia en columna G
+        ref = ['Categorías válidas:', 'Tipo: ingreso | gasto', ''] + list(CATEGORY_DEFAULTS.keys())
+        for i, line in enumerate(ref, start=1):
+            ws.cell(row=i, column=7, value=line)
 
-        resp = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8')
-        resp['Content-Disposition'] = 'attachment; filename="finanzly-transacciones.csv"'
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        resp = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        resp['Content-Disposition'] = 'attachment; filename="finanzly-transacciones.xlsx"'
         return resp
 
     def _export_pdf(self, transactions, user):
