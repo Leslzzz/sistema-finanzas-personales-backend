@@ -9,10 +9,21 @@ from .views import (
     TransactionTemplateView,
     BudgetListView,
     BudgetDetailView,
+    PeriodCurrentView,
+    PeriodListView,
+    PeriodDetailView,
+    PeriodStartView,
+    PeriodCloseView,
 )
 
 urlpatterns = [
     path('onboarding', OnboardingView.as_view(), name='onboarding'),
+
+    path('periods/current', PeriodCurrentView.as_view(), name='period_current'),
+    path('periods/start', PeriodStartView.as_view(), name='period_start'),
+    path('periods', PeriodListView.as_view(), name='period_list'),
+    path('periods/<int:pk>', PeriodDetailView.as_view(), name='period_detail'),
+    path('periods/<int:pk>/close', PeriodCloseView.as_view(), name='period_close'),
 
     path('transactions', TransactionListCreateView.as_view(), name='transactions'),
     path('transactions/summary', TransactionSummaryView.as_view(), name='transactions_summary'),

@@ -116,12 +116,21 @@ class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from datetime import date
+        from finanzas.models import MonthlyPeriod
+
         user = request.user
+        today = date.today()
+        has_period = MonthlyPeriod.objects.filter(
+            user=user, year=today.year, month=today.month,
+        ).exists()
+
         return Response({
             'id': user.id,
             'name': user.name,
             'email': user.email,
             'onboardingCompleted': user.onboarding_completed,
+            'hasPeriodForCurrentMonth': has_period,
         })
 
 

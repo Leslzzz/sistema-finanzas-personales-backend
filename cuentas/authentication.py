@@ -6,7 +6,7 @@ class CustomCookieJWTAuthentication(JWTAuthentication):
         # Intentamos obtener el token de la cookie 'access_token'
         raw_token = request.COOKIES.get('access_token') or None
         
-        # Si no hay cookie, probamos con el header por si usas Postman
+        # Si no hay cookie, probamos con el header
         if raw_token is None:
             header = self.get_header(request)
             if header:

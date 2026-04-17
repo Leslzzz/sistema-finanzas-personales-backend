@@ -5,13 +5,14 @@ from decimal import Decimal, InvalidOperation
 
 from django.db.models import Sum
 from django.http import HttpResponse
+from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser
-from .models import Transaction, Budget
+from .models import Transaction, Budget, MonthlyPeriod
 
 
 # ── Category defaults ──────────────────────────────────────────────────────────
@@ -30,34 +31,45 @@ CATEGORY_DEFAULTS = {
 }
 
 
-# ── Helper: active month range ─────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
-def get_active_month_range(user):
-    today = date.today()
-    day = user.month_start_day
-
-    if today.day >= day:
-        start_month, start_year = today.month, today.year
-    elif today.month == 1:
-        start_month, start_year = 12, today.year - 1
-    else:
-        start_month, start_year = today.month - 1, today.year
-
-    max_day_start = calendar.monthrange(start_year, start_month)[1]
-    start = date(start_year, start_month, min(day, max_day_start))
-
-    if start_month == 12:
-        end_month, end_year = 1, start_year + 1
-    else:
-        end_month, end_year = start_month + 1, start_year
-
-    max_day_end = calendar.monthrange(end_year, end_month)[1]
-    if day == 1:
-        end = date(end_year, end_month, max_day_end)
-    else:
-        end = date(end_year, end_month, min(day - 1, max_day_end))
-
+def _period_dates(year, month):
+    start = date(year, month, 1)
+    last_day = calendar.monthrange(year, month)[1]
+    end = date(year, month, last_day)
     return start, end
+
+
+def _get_active_period(user):
+    return MonthlyPeriod.objects.filter(user=user, status='active').first()
+
+
+def _resolve_period(user, period_id=None):
+    """Returns (period, error_response). One of them will be None."""
+    if period_id:
+        try:
+            return MonthlyPeriod.objects.get(id=period_id, user=user), None
+        except MonthlyPeriod.DoesNotExist:
+            return None, Response({'message': 'Período no encontrado'}, status=404)
+    period = _get_active_period(user)
+    if not period:
+        return None, Response(
+            {'message': 'No hay un período activo. Completa el onboarding mensual.'},
+            status=404,
+        )
+    return period, None
+
+
+def _period_dict(p):
+    return {
+        'id': p.id,
+        'year': p.year,
+        'month': p.month,
+        'monthlyIncome': float(p.monthly_income),
+        'status': p.status,
+        'startDate': p.start_date.strftime('%Y-%m-%d'),
+        'endDate': p.end_date.strftime('%Y-%m-%d'),
+    }
 
 
 def _tx_dict(t):
@@ -82,34 +94,175 @@ def _budget_dict(b, spent):
     }
 
 
-# ── Onboarding ─────────────────────────────────────────────────────────────────
+def _create_period_budgets(user, period, categories):
+    for cat in categories:
+        label = cat.get('label', '')
+        budget_limit = cat.get('budgetLimit', 0)
+        defaults = CATEGORY_DEFAULTS.get(label, {'icon': '📦', 'color': '#94a3b8'})
+        Budget.objects.create(
+            user=user,
+            period=period,
+            label=label,
+            icon=defaults['icon'],
+            color=defaults['color'],
+            limit=Decimal(str(budget_limit)),
+        )
+
+
+# ── Onboarding (backward compat — delegates to period start logic) ─────────────
 
 class OnboardingView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
+        today = date.today()
+        year, month = today.year, today.month
+
+        if MonthlyPeriod.objects.filter(user=user, year=year, month=month).exists():
+            return Response({'message': 'Ya existe un período para este mes.'}, status=status.HTTP_409_CONFLICT)
+
         monthly_income = request.data.get('monthlyIncome')
+        if monthly_income is not None:
+            try:
+                monthly_income_dec = Decimal(str(monthly_income))
+            except (ValueError, InvalidOperation):
+                return Response({'message': 'monthlyIncome inválido'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            monthly_income_dec = Decimal('0')
+
         categories = request.data.get('categories', [])
 
-        if monthly_income is not None:
-            user.monthly_income = Decimal(str(monthly_income))
+        MonthlyPeriod.objects.filter(user=user, status='active').update(
+            status='closed', closed_at=timezone.now(),
+        )
 
-        for cat in categories:
-            label = cat.get('label', '')
-            budget_limit = cat.get('budgetLimit', 0)
-            defaults = CATEGORY_DEFAULTS.get(label, {'icon': '📦', 'color': '#94a3b8'})
-            Budget.objects.create(
-                user=user,
-                label=label,
-                icon=defaults['icon'],
-                color=defaults['color'],
-                limit=Decimal(str(budget_limit)),
-            )
+        start, end = _period_dates(year, month)
+        period = MonthlyPeriod.objects.create(
+            user=user, year=year, month=month,
+            monthly_income=monthly_income_dec,
+            status='active', start_date=start, end_date=end,
+        )
 
+        _create_period_budgets(user, period, categories)
+
+        user.monthly_income = monthly_income_dec
         user.onboarding_completed = True
         user.save()
+
         return Response(status=status.HTTP_201_CREATED)
+
+
+# ── Periods ────────────────────────────────────────────────────────────────────
+
+class PeriodCurrentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        period = _get_active_period(request.user)
+        if not period:
+            return Response(
+                {'message': 'No hay un período activo. Completa el onboarding mensual.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(_period_dict(period))
+
+
+class PeriodListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        periods = MonthlyPeriod.objects.filter(user=request.user)
+        return Response([_period_dict(p) for p in periods])
+
+
+class PeriodDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            period = MonthlyPeriod.objects.get(id=pk, user=request.user)
+        except MonthlyPeriod.DoesNotExist:
+            return Response({'message': 'Período no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+        txs = Transaction.objects.filter(period=period)
+        ingresos = txs.filter(type='ingreso').aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        gastos = txs.filter(type='gasto').aggregate(total=Sum('amount'))['total'] or Decimal('0')
+
+        data = _period_dict(period)
+        data['summary'] = {
+            'totalIngresos': float(ingresos),
+            'totalGastos': float(gastos),
+            'balance': float(ingresos - gastos),
+        }
+        return Response(data)
+
+
+class PeriodStartView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        today = date.today()
+        year, month = today.year, today.month
+
+        if MonthlyPeriod.objects.filter(user=user, year=year, month=month).exists():
+            return Response({'message': 'Ya existe un período para este mes.'}, status=status.HTTP_409_CONFLICT)
+
+        monthly_income = request.data.get('monthlyIncome')
+        if monthly_income is None:
+            return Response({'message': 'monthlyIncome es requerido'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            monthly_income_dec = Decimal(str(monthly_income))
+            if monthly_income_dec < 0:
+                raise ValueError()
+        except (ValueError, InvalidOperation):
+            return Response({'message': 'monthlyIncome debe ser un número positivo'}, status=status.HTTP_400_BAD_REQUEST)
+
+        categories = request.data.get('categories', [])
+
+        # Auto-close any active period from a previous month
+        MonthlyPeriod.objects.filter(user=user, status='active').update(
+            status='closed', closed_at=timezone.now(),
+        )
+
+        start, end = _period_dates(year, month)
+        period = MonthlyPeriod.objects.create(
+            user=user, year=year, month=month,
+            monthly_income=monthly_income_dec,
+            status='active', start_date=start, end_date=end,
+        )
+
+        _create_period_budgets(user, period, categories)
+
+        user.monthly_income = monthly_income_dec
+        user.onboarding_completed = True
+        user.save()
+
+        return Response(_period_dict(period), status=status.HTTP_201_CREATED)
+
+
+class PeriodCloseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            period = MonthlyPeriod.objects.get(id=pk, user=request.user)
+        except MonthlyPeriod.DoesNotExist:
+            return Response({'message': 'Período no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+        if period.status != 'active':
+            return Response({'message': 'El período ya está cerrado.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if date.today() < period.end_date:
+            return Response({'message': 'El mes actual aún no ha terminado.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        period.status = 'closed'
+        period.closed_at = timezone.now()
+        period.save()
+
+        return Response({'message': 'Período cerrado correctamente.'})
 
 
 # ── Transactions ───────────────────────────────────────────────────────────────
@@ -118,10 +271,22 @@ class TransactionListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        txs = Transaction.objects.filter(user=request.user).order_by('-date')
+        period_id = request.query_params.get('periodId')
+        period, err = _resolve_period(request.user, period_id)
+        if err:
+            return err
+        txs = Transaction.objects.filter(period=period).order_by('-date')
         return Response([_tx_dict(t) for t in txs])
 
     def post(self, request):
+        user = request.user
+        period = _get_active_period(user)
+        if not period:
+            return Response(
+                {'message': 'No tienes un período activo para este mes.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         desc = request.data.get('desc')
         amount = request.data.get('amount')
         type_ = request.data.get('type')
@@ -143,8 +308,16 @@ class TransactionListCreateView(APIView):
         except (ValueError, TypeError):
             return Response({'message': 'date debe tener formato YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
 
+        today = date.today()
+        if parsed_date < period.start_date or parsed_date > min(period.end_date, today):
+            return Response(
+                {'message': f'La fecha debe estar entre {period.start_date} y {min(period.end_date, today)}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         t = Transaction.objects.create(
-            user=request.user,
+            user=user,
+            period=period,
             desc=desc,
             amount=amount,
             type=type_,
@@ -158,8 +331,12 @@ class TransactionSummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        start, end = get_active_month_range(request.user)
-        qs = Transaction.objects.filter(user=request.user, date__range=(start, end))
+        period_id = request.query_params.get('periodId')
+        period, err = _resolve_period(request.user, period_id)
+        if err:
+            return err
+
+        qs = Transaction.objects.filter(period=period)
         ingresos = qs.filter(type='ingreso').aggregate(total=Sum('amount'))['total'] or Decimal('0')
         gastos = qs.filter(type='gasto').aggregate(total=Sum('amount'))['total'] or Decimal('0')
         return Response({
@@ -173,12 +350,12 @@ class TransactionCategoriesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        start, end = get_active_month_range(request.user)
-        gastos = Transaction.objects.filter(
-            user=request.user,
-            type='gasto',
-            date__range=(start, end),
-        )
+        period_id = request.query_params.get('periodId')
+        period, err = _resolve_period(request.user, period_id)
+        if err:
+            return err
+
+        gastos = Transaction.objects.filter(period=period, type='gasto')
 
         totals: dict[str, Decimal] = {}
         for t in gastos:
@@ -189,14 +366,13 @@ class TransactionCategoriesView(APIView):
             return Response([])
 
         grand_total = sum(totals.values())
-        budget_colors = {b.label: b.color for b in Budget.objects.filter(user=request.user)}
+        budget_colors = {b.label: b.color for b in Budget.objects.filter(period=period)}
 
         result = []
         for label, amount in totals.items():
             color = budget_colors.get(label) or CATEGORY_DEFAULTS.get(label, {}).get('color', '#94a3b8')
             result.append({'label': label, 'value': round(float(amount) / float(grand_total) * 100), 'color': color})
 
-        # Adjust rounding so values sum exactly to 100
         diff = 100 - sum(r['value'] for r in result)
         if diff and result:
             result[0]['value'] += diff
@@ -211,6 +387,14 @@ class TransactionImportView(APIView):
     def post(self, request):
         import unicodedata
         import pandas as pd
+
+        user = request.user
+        period = _get_active_period(user)
+        if not period:
+            return Response(
+                {'message': 'No tienes un período activo para este mes.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         file = request.FILES.get('file')
         if not file:
@@ -291,13 +475,18 @@ class TransactionImportView(APIView):
             tx_date = date.today()
             if col_date:
                 try:
-                    import pandas as pd
                     tx_date = pd.to_datetime(str(row.get(col_date, '')), dayfirst=False).date()
                 except Exception:
                     pass
 
+            if tx_date < period.start_date or tx_date > period.end_date:
+                errors.append({'row': row_num, 'msg': f'Fecha {tx_date} fuera del rango del período activo'})
+                skipped += 1
+                continue
+
             to_create.append(Transaction(
-                user=request.user,
+                user=user,
+                period=period,
                 desc=desc,
                 amount=amount,
                 type=tx_type,
@@ -324,7 +513,6 @@ class TransactionTemplateView(APIView):
 
         ws.append(['Fecha', 'Descripción', 'Monto', 'Tipo', 'Categoría'])
 
-        # Referencia en columna G
         ref = ['Categorías válidas:', 'Tipo: ingreso | gasto', 'Fecha: YYYY-MM-DD', ''] + list(CATEGORY_DEFAULTS.keys())
         for i, line in enumerate(ref, start=1):
             ws.cell(row=i, column=7, value=line)
@@ -373,7 +561,6 @@ class TransactionExportView(APIView):
                 t.category or 'Otros',
             ])
 
-        # Referencia en columna G
         ref = ['Categorías válidas:', 'Tipo: ingreso | gasto', ''] + list(CATEGORY_DEFAULTS.keys())
         for i, line in enumerate(ref, start=1):
             ws.cell(row=i, column=7, value=line)
@@ -416,14 +603,17 @@ class BudgetListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
-        start, end = get_active_month_range(user)
-        budgets = Budget.objects.filter(user=user)
+        period_id = request.query_params.get('periodId')
+        period, err = _resolve_period(request.user, period_id)
+        if err:
+            return err
+
+        budgets = Budget.objects.filter(period=period)
 
         result = []
         for b in budgets:
             spent = Transaction.objects.filter(
-                user=user, type='gasto', category=b.label, date__range=(start, end),
+                period=period, type='gasto', category=b.label,
             ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
             result.append(_budget_dict(b, spent))
         return Response(result)
@@ -439,14 +629,20 @@ class BudgetDetailView(APIView):
         except Budget.DoesNotExist:
             return Response({'message': 'Presupuesto no encontrado'}, status=status.HTTP_404_NOT_FOUND)
 
+        active_period = _get_active_period(user)
+        if not active_period or budget.period_id != active_period.id:
+            return Response(
+                {'message': 'Solo puedes editar presupuestos del período activo.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         new_limit = request.data.get('limit')
         if new_limit is not None:
             budget.limit = Decimal(str(new_limit))
             budget.save()
 
-        start, end = get_active_month_range(user)
         spent = Transaction.objects.filter(
-            user=user, type='gasto', category=budget.label, date__range=(start, end),
+            period=active_period, type='gasto', category=budget.label,
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
 
         return Response(_budget_dict(budget, spent))
