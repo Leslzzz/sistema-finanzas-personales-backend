@@ -46,8 +46,8 @@ class RegisterView(APIView):
         tokens = get_tokens_for_user(user)
 
         response = Response({
-            'token': tokens['access'],
             'user': {'id': user.id, 'name': user.name, 'email': user.email},
+            'onboardingCompleted': False,
         }, status=status.HTTP_201_CREATED)
 
         response.set_cookie('access_token', tokens['access'], httponly=True, secure=True, samesite='None', max_age=3600)
@@ -76,8 +76,8 @@ class MyTokenObtainPairView(TokenObtainPairView):
         response.set_cookie('refresh_token', refresh_token, httponly=True, secure=True, samesite='None', max_age=86400 * 7)
 
         response.data = {
-            'token': access_token,
             'user': {'id': user.id, 'name': user.name, 'email': user.email},
+            'onboardingCompleted': user.onboarding_completed,
         }
         return response
 
